@@ -1,0 +1,734 @@
+openapi: 3.1.0
+info:
+  title: Resource Renewal API
+  version: 1.0.0
+  description: |
+    API локального приложения заявок на продление. Все защищённые операции
+    требуют opaque server-side session в HttpOnly cookie rr_session.
+    Изменяющие authenticated запросы также требуют X-CSRF-Token. Роли и
+    доступ к пространствам определяются сервером по membership в PostgreSQL.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+security:
+  - cookieAuth: []
+tags:
+  - name: Auth
+  - name: Workspaces
+  - name: Resources
+  - name: Renewals
+  - name: Health
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Проверка liveness API
+      security: []
+      responses:
+        "200":
+          description: API запущено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Локальный вход seed-пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Успешный вход; создаётся новая server-side session
+          headers:
+            Set-Cookie:
+              description: rr_session с HttpOnly, SameSite=Lax, Path=/ и Secure вне local HTTP
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/csrf:
+    get:
+      tags: [Auth]
+      summary: Получить стабильный session-bound CSRF token
+      description: Возвращает HMAC текущей сессии; session cookie остаётся HttpOnly и не раскрывается.
+      responses:
+        "200":
+          description: CSRF token для unsafe methods текущей сессии
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CsrfResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Отозвать текущую server-side session и очистить cookie
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: Сессия отозвана; Set-Cookie очищает rr_session
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Текущий пользователь и его актуальные memberships
+      responses:
+        "200":
+          description: Текущий пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /workspaces:
+    get:
+      tags: [Workspaces]
+      summary: Пространства, доступные текущему пользователю
+      responses:
+        "200":
+          description: Список доступных пространств
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /workspaces/{workspaceId}/resources:
+    get:
+      tags: [Resources]
+      summary: Ресурсы доступного пространства
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Ресурсы и ссылки на активные заявки
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Resource"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /workspaces/{workspaceId}/resources/{resourceId}:
+    get:
+      tags: [Resources]
+      summary: Ресурс внутри доступного пространства
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Ресурс
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resource"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /workspaces/{workspaceId}/requests:
+    get:
+      tags: [Renewals]
+      summary: Заявки доступного пространства
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: resourceId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RequestStatus"
+      responses:
+        "200":
+          description: Заявки в порядке от новых к старым
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Renewals]
+      summary: Создать заявку со snapshot текущего ресурса
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequestInput"
+      responses:
+        "201":
+          description: Заявка создана; срок ресурса пока не изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewalRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /workspaces/{workspaceId}/requests/{requestId}:
+    get:
+      tags: [Renewals]
+      summary: Детали заявки, execution state и история
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Детали заявки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewalRequestDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /workspaces/{workspaceId}/requests/{requestId}/approve:
+    post:
+      tags: [Renewals]
+      summary: Согласовать заявку и атомарно создать durable job
+      description: |
+        Не выполняет provider HTTP внутри запроса. Повторный approve,
+        self-approval и stale snapshot обрабатываются по правилам ошибок.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          description: Заявка переведена в PROCESSING
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewalRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /workspaces/{workspaceId}/requests/{requestId}/reject:
+    post:
+      tags: [Renewals]
+      summary: Отклонить заявку без обращения к провайдеру
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          description: Заявка отклонена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewalRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /workspaces/{workspaceId}/requests/{requestId}/retry:
+    post:
+      tags: [Renewals]
+      summary: Начать новый execution cycle с прежним operation key
+      description: Доступно approver только из NEEDS_ATTENTION; первым действием worker выполняет RECONCILE.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          description: Заявка снова переведена в PROCESSING
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewalRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: rr_session
+      description: Opaque session token; устанавливается сервером как HttpOnly SameSite=Lax cookie.
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ResourceId:
+      name: resourceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Session-bound HMAC из login response или GET /auth/csrf
+      schema:
+        type: string
+        minLength: 64
+        maxLength: 64
+        pattern: '^[0-9a-f]{64}$'
+  responses:
+    ValidationError:
+      description: Ошибка валидации, code=VALIDATION_ERROR
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            status: 400
+            code: VALIDATION_ERROR
+            message: Request validation failed
+    Unauthorized:
+      description: Нет, недействительна, истекла или отозвана server-side session; code=UNAUTHORIZED
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            status: 401
+            code: UNAUTHORIZED
+            message: Authentication required
+    Forbidden:
+      description: Нет membership/роли или запрещён Origin (FORBIDDEN), self-decision (SELF_DECISION_FORBIDDEN), отсутствует/неверен CSRF token (CSRF_INVALID)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            status: 403
+            code: FORBIDDEN
+            message: Access to this workspace or action is forbidden
+    NotFound:
+      description: Объект не найден внутри доступного пространства; code=RESOURCE_NOT_FOUND или REQUEST_NOT_FOUND
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            status: 404
+            code: RESOURCE_NOT_FOUND
+            message: Resource not found
+    Conflict:
+      description: REQUEST_ALREADY_ACTIVE, INVALID_STATE_TRANSITION или RESOURCE_SNAPSHOT_MISMATCH
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            status: 409
+            code: INVALID_STATE_TRANSITION
+            message: The request state has already changed
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: initiator.alpha@example.test
+        password:
+          type: string
+          format: password
+          minLength: 1
+    LoginResponse:
+      type: object
+      required: [csrfToken, user]
+      properties:
+        csrfToken:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[0-9a-f]{64}$'
+        user:
+          $ref: "#/components/schemas/CurrentUser"
+    CsrfResponse:
+      type: object
+      required: [csrfToken]
+      properties:
+        csrfToken:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[0-9a-f]{64}$'
+    CurrentUser:
+      type: object
+      required: [id, email, displayName, memberships]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/Membership"
+    Membership:
+      type: object
+      required: [workspaceId, workspaceCode, workspaceName, roles]
+      properties:
+        workspaceId:
+          type: string
+          format: uuid
+        workspaceCode:
+          type: string
+          example: ALPHA
+        workspaceName:
+          type: string
+          example: Alpha
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+          minItems: 1
+          uniqueItems: true
+    Role:
+      type: string
+      enum: [INITIATOR, APPROVER]
+    Workspace:
+      type: object
+      required: [id, code, name, roles]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+    Resource:
+      type: object
+      required: [id, workspaceId, externalId, name, expiresOn, amountMinor, currency, activeRequestId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        externalId:
+          type: string
+          example: res-a-01
+        name:
+          type: string
+          example: Хранилище A
+        expiresOn:
+          type: string
+          format: date
+          example: "2027-03-01"
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 128000
+        currency:
+          type: string
+          const: RUB
+        activeRequestId:
+          type: [string, "null"]
+          format: uuid
+    CreateRequestInput:
+      type: object
+      additionalProperties: false
+      required: [resourceId]
+      properties:
+        resourceId:
+          type: string
+          format: uuid
+    RequestStatus:
+      type: string
+      enum: [PENDING_APPROVAL, REJECTED, PROCESSING, COMPLETED, NEEDS_ATTENTION]
+    JobStatus:
+      type: string
+      enum: [PENDING, RUNNING, WAITING_MANUAL, SUCCEEDED]
+    RequestSnapshot:
+      type: object
+      required: [oldExpiry, newExpiry, amountMinor, currency, periodMonths]
+      properties:
+        oldExpiry:
+          type: string
+          format: date
+          example: "2027-03-01"
+        newExpiry:
+          type: string
+          format: date
+          example: "2027-03-31"
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 128000
+        currency:
+          type: string
+          const: RUB
+        periodMonths:
+          type: integer
+          const: 1
+    ExecutionState:
+      type: object
+      required: [status, attemptsInCycle, totalPostAttempts, nextAttemptAt, lastErrorCode]
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        attemptsInCycle:
+          type: integer
+          minimum: 0
+          maximum: 3
+        totalPostAttempts:
+          type: integer
+          minimum: 0
+        nextAttemptAt:
+          type: string
+          format: date-time
+        lastErrorCode:
+          type: [string, "null"]
+          example: PROVIDER_UNCERTAIN
+    RenewalRequest:
+      type: object
+      required:
+        - id
+        - workspaceId
+        - resourceId
+        - createdBy
+        - decisionBy
+        - status
+        - snapshot
+        - operationKey
+        - providerOperationId
+        - execution
+        - createdAt
+        - updatedAt
+        - decidedAt
+        - completedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        resourceId:
+          type: string
+          format: uuid
+        createdBy:
+          type: string
+          format: uuid
+        decisionBy:
+          type: [string, "null"]
+          format: uuid
+        status:
+          $ref: "#/components/schemas/RequestStatus"
+        snapshot:
+          $ref: "#/components/schemas/RequestSnapshot"
+        operationKey:
+          type: string
+          format: uuid
+        providerOperationId:
+          type: [string, "null"]
+        execution:
+          anyOf:
+            - $ref: "#/components/schemas/ExecutionState"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: [string, "null"]
+          format: date-time
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+    RequestList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RenewalRequest"
+        total:
+          type: integer
+          minimum: 0
+    HistoryEvent:
+      type: object
+      required: [id, actorType, actorUserId, actorDisplayName, fromStatus, toStatus, reasonCode, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorType:
+          type: string
+          enum: [USER, SYSTEM]
+        actorUserId:
+          type: [string, "null"]
+          format: uuid
+        actorDisplayName:
+          type: [string, "null"]
+        fromStatus:
+          type: [string, "null"]
+          enum: [PENDING_APPROVAL, REJECTED, PROCESSING, COMPLETED, NEEDS_ATTENTION, null]
+        toStatus:
+          $ref: "#/components/schemas/RequestStatus"
+        reasonCode:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    RenewalRequestDetail:
+      allOf:
+        - $ref: "#/components/schemas/RenewalRequest"
+        - type: object
+          required: [resource, history]
+          properties:
+            resource:
+              $ref: "#/components/schemas/Resource"
+            history:
+              type: array
+              items:
+                $ref: "#/components/schemas/HistoryEvent"
+    ApiError:
+      type: object
+      required: [status, code, message]
+      properties:
+        status:
+          type: integer
+          format: int32
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - CSRF_INVALID
+            - SELF_DECISION_FORBIDDEN
+            - RESOURCE_NOT_FOUND
+            - REQUEST_NOT_FOUND
+            - REQUEST_ALREADY_ACTIVE
+            - INVALID_STATE_TRANSITION
+            - RESOURCE_SNAPSHOT_MISMATCH
+            - INTERNAL_ERROR
+          example: INVALID_STATE_TRANSITION
+        message:
+          type: string
+        details:
+          type: [object, "null"]
+          additionalProperties: true
+        requestId:
+          type: string
