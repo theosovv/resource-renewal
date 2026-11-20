@@ -32,6 +32,8 @@ M3 реализуется до основной UI-полировки, пото�
 
 **DoD:** чистый checkout позволяет запустить API/web и подключиться к PostgreSQL по README draft; CI/local scripts проходят на пустом skeleton. Точные версии зафиксированы.
 
+**Факт (2026-11-20):** M0 реализован. Локально пройдены install с frozen lockfile, lint, strict typecheck, 5 unit/component tests, production build, Prisma validation, 1 E2E с реальной PostgreSQL 16.11, provider health и browser smoke через Vite proxy. Команды задокументированы в корневом README. GitHub Actions workflow добавлен; результат удалённого CI run здесь не утверждается.
+
 ## M1. БД, seed и доступ — 7 часов
 
 | Задача | Содержание | Оценка |

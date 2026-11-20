@@ -1,0 +1,44 @@
+{
+  "name": "resource-renewal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=22.12.0 <25",
+    "pnpm": "11.6.x"
+  },
+  "scripts": {
+    "postinstall": "pnpm prisma:generate && pnpm contracts:generate",
+    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,magenta \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "pnpm --filter @resource-renewal/api dev",
+    "dev:web": "pnpm --filter @resource-renewal/web dev",
+    "dev:provider": "python3 tools/provider/provider_simulator.py",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "contracts:generate": "pnpm --filter @resource-renewal/contracts generate",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @resource-renewal/api test:e2e",
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "preview:web": "pnpm --filter @resource-renewal/web preview"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@prisma/client": "6.19.3",
+    "@types/node": "24.19.2",
+    "concurrently": "10.0.7",
+    "eslint": "10.15.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.8",
+    "globals": "17.14.0",
+    "prisma": "6.19.3",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0"
+  }
+}

@@ -4,7 +4,7 @@
 
 Матрица показывает, что каждое обязательное требование имеет архитектурное решение, задачу реализации и проверку. Ссылки на задачи/tests описывают план, а не утверждают, что код уже реализован.
 
-Статус всего комплекта на момент создания: **Specified**. После реализации добавляется фактический результат/ссылка на test run, а идентификаторы сохраняются.
+Статус бизнес-комплекта на момент создания: **Specified**. M0 infrastructure skeleton реализован отдельно и не закрывает бизнес-requirements. После реализации добавляется фактический результат/ссылка на test run, а идентификаторы сохраняются.
 
 ## 2. Требования → решения → реализация → тесты
 
@@ -74,6 +74,13 @@
 - документация запуска содержит фактические команды, совпадающие с package scripts.
 
 ## 5. Обновление после реализации
+
+### Снимок M0 — 2026-11-20
+
+- `T00-01` — **Implemented locally**: pnpm workspaces, strict TypeScript, NestJS/Vite shells, ESLint, Vitest, env example и frozen lockfile. Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
+- `T00-02` — **Implemented locally**: PostgreSQL 16.11 Compose config, Prisma baseline, health flow, Vite proxy и provider launch. Проверки: `apps/api/test/health.e2e-spec.ts` с реальной PostgreSQL, provider `/health`, browser smoke и `apps/web/src/app.test.tsx`.
+- Health contract и generated types: `docs/openapi.yaml` → `packages/contracts/src/schema.ts`.
+- Эти проверки не закрывают `FR-*`, `AC-*` или P0 `TC-*`; бизнес-статусы остаются **Specified**.
 
 Для каждого requirement SHOULD фиксироваться:
 

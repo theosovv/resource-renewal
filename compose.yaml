@@ -1,0 +1,23 @@
+name: resource-renewal
+
+services:
+  postgres:
+    image: postgres:16.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-resource_renewal}
+      POSTGRES_USER: ${POSTGRES_USER:-resource_renewal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-resource_renewal_local}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
+
+volumes:
+  postgres_data:

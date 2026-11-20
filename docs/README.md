@@ -7,7 +7,8 @@
 - Базовый ориентир: MVP, рассчитанный на 24–40 часов разработки.
 - Исходный документ: `../Fullstack_практическое_задание.pdf`.
 - Выбранный стек: TypeScript, NestJS, React/Vite, PostgreSQL, Prisma, pnpm.
-- Спецификации предназначены для реализации, а не описывают уже существующий код.
+- M0 Walking skeleton реализован и проверен локально 2026-11-20: monorepo, health flow через реальную PostgreSQL, web/API shells, Prisma baseline, generated contracts, provider launch и CI workflow.
+- Бизнес-спецификации остаются целевыми: migrations/seed/auth, renewals, worker, основной UI и P0 acceptance suite ещё не реализованы. Актуальные команды и ограничения находятся в корневом `README.md`.
 
 Ключевые слова **MUST**, **SHOULD**, **MAY** обозначают обязательное, рекомендуемое и необязательное требование соответственно.
 

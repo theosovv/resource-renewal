@@ -22,15 +22,18 @@ paths:
   /health:
     get:
       tags: [Health]
-      summary: Проверка liveness API
+      summary: Проверка API и соединения с PostgreSQL
+      description: Возвращает ok только после успешного SQL round trip; детали подключения не раскрываются.
       security: []
       responses:
         "200":
-          description: API запущено
+          description: API запущено и PostgreSQL доступна
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: PostgreSQL недоступна; ответ не содержит параметров подключения
   /auth/login:
     post:
       tags: [Auth]

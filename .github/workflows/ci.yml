@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.11-alpine
+        env:
+          POSTGRES_DB: resource_renewal
+          POSTGRES_USER: resource_renewal
+          POSTGRES_PASSWORD: resource_renewal_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U resource_renewal -d resource_renewal"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://resource_renewal:resource_renewal_local@127.0.0.1:5432/resource_renewal?schema=public
+      API_HOST: 127.0.0.1
+      API_PORT: 3000
+      WEB_ORIGIN: http://127.0.0.1:5173
+      COOKIE_SECURE: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install pnpm 11.6.0
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install Node.js 24.12.0
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install Python 3.14.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.14.9
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate Prisma baseline
+        run: pnpm prisma:validate
+      - name: Check generated OpenAPI types
+        run: |
+          pnpm contracts:generate
+          git diff --exit-code -- packages/contracts/src/schema.ts
+      - name: Lint, typecheck, unit tests and build
+        run: pnpm check
+      - name: Health integration test with real PostgreSQL
+        run: pnpm test:e2e
+      - name: Provider simulator smoke test
+        shell: bash
+        run: |
+          python3 tools/provider/provider_simulator.py &
+          provider_pid=$!
+          trap 'kill "$provider_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error \
+            --retry 20 --retry-connrefused --retry-delay 1 --max-time 30 \
+            http://127.0.0.1:8091/health

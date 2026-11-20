@@ -14,6 +14,15 @@
 | UI smoke/E2E | Основной user flow, keyboard, ошибки, desktop/mobile |
 | Manual acceptance | Точный контрольный сценарий PDF с остановкой приложения |
 
+### Вспомогательные проверки M0
+
+Walking skeleton имеет отдельные smoke checks, которые не заменяют P0:
+
+- `apps/api/src/modules/health/*.spec.ts` — unit-поведение health module и сокрытие DB error details;
+- `apps/web/src/app.test.tsx` — loading/success/error/retry и вызов `/api/v1/health` с credentials;
+- `apps/api/test/health.e2e-spec.ts` — HTTP `GET /api/v1/health` и реальный SQL round trip в PostgreSQL, без mock Prisma;
+- provider `/health` и browser smoke через Vite proxy — запуск предоставленного процесса и фактическое web→API соединение.
+
 ### Обязательный P0 suite
 
 P0 — обязательные проверки, которые нельзя оставлять `skipped`/`todo` при сдаче:

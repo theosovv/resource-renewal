@@ -1,0 +1,25 @@
+# Dependencies and generated runtime artifacts
+node_modules/
+**/dist/
+**/.vite/
+**/*.tsbuildinfo
+
+# Tests and local tooling
+coverage/
+test-results/
+playwright-report/
+*.log
+
+# Local configuration; .env.example remains versioned
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]

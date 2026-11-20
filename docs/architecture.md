@@ -37,7 +37,7 @@ Worker логически отделён от API, но в MVP MAY запуск�
 | API tests | NestJS testing module, Supertest, реальная PostgreSQL |
 | UI smoke | Playwright; component/unit tests только где оправдано |
 
-Точные версии фиксируются в lockfile и итоговом README на этапе walking skeleton. Предполагаемый baseline — Node.js 22 LTS или новее, pnpm 10+, Python 3.10+ для имитатора.
+Точные версии зафиксированы на этапе walking skeleton в корневом `README.md`, `.nvmrc`, `package.json` и `pnpm-lock.yaml`: проверенные runtime — Node.js 24.12.0, pnpm 11.6.0, PostgreSQL 16.11 и Python 3.14.9. Поддерживаемый диапазон Node.js — `>=22.12.0 <25`; имитатор использует только Python standard library.
 
 ## 3. Предлагаемая структура репозитория
 
