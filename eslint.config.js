@@ -23,7 +23,7 @@ export default typescriptEslint.config(
     },
   },
   {
-    files: ['apps/api/**/*.ts', 'apps/web/*.ts', 'packages/**/*.ts', 'eslint.config.js'],
+    files: ['apps/api/**/*.ts', 'apps/web/*.ts', 'packages/**/*.ts', 'prisma/**/*.ts', 'eslint.config.js'],
     languageOptions: {
       globals: globals.node,
     },

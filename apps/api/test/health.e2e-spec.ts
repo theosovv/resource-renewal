@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import { configureApplication } from '../src/app.setup.js';
 
 describe('GET /api/v1/health (real PostgreSQL)', () => {
   let app: INestApplication | undefined;
@@ -11,7 +12,7 @@ describe('GET /api/v1/health (real PostgreSQL)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api/v1');
+    configureApplication(app);
     await app.init();
   });
 

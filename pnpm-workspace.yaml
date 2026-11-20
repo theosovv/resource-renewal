@@ -4,6 +4,8 @@ packages:
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
+  argon2: true
+  esbuild: true
   prisma: true
 minimumReleaseAgeExclude:
   - '@nestjs/cli@12.0.15'

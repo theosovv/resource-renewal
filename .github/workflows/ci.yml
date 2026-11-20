@@ -27,7 +27,10 @@ jobs:
       API_HOST: 127.0.0.1
       API_PORT: 3000
       WEB_ORIGIN: http://127.0.0.1:5173
-      COOKIE_SECURE: "true"
+      COOKIE_SECURE: "false"
+      CSRF_SECRET: ci-only-csrf-secret-with-at-least-32-bytes
+      SESSION_IDLE_TTL_SECONDS: "1800"
+      SESSION_ABSOLUTE_TTL_SECONDS: "28800"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,7 +49,7 @@ jobs:
           python-version: 3.14.9
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Validate Prisma baseline
+      - name: Validate Prisma schema
         run: pnpm prisma:validate
       - name: Check generated OpenAPI types
         run: |
@@ -54,7 +57,9 @@ jobs:
           git diff --exit-code -- packages/contracts/src/schema.ts
       - name: Lint, typecheck, unit tests and build
         run: pnpm check
-      - name: Health integration test with real PostgreSQL
+      - name: Apply migrations and seed on clean PostgreSQL
+        run: pnpm prisma:migrate:deploy && pnpm db:seed
+      - name: M1 API integration tests with real PostgreSQL
         run: pnpm test:e2e
       - name: Provider simulator smoke test
         shell: bash

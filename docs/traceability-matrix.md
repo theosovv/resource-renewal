@@ -82,6 +82,14 @@
 - Health contract и generated types: `docs/openapi.yaml` → `packages/contracts/src/schema.ts`.
 - Эти проверки не закрывают `FR-*`, `AC-*` или P0 `TC-*`; бизнес-статусы остаются **Specified**.
 
+### Снимок M1 — 2026-11-20
+
+- `T01-01` — **Implemented locally**: `prisma/migrations/20261120130000_m1_business_schema/migration.sql`, `prisma/schema.prisma`, date-only/minor-unit adapters. Migration применена к чистым схемам; diff применённой БД против Prisma schema пустой. Partial indexes/CHECK constraints проверены в `apps/api/test/database.e2e-spec.ts`.
+- `T01-02` — **Implemented locally**: `prisma/seed.ts`, `prisma/seed-cli.ts`, `prisma/reset-test.ts`. Seed assertions и повторный seed с сохранением business/authorization state проверены в `apps/api/test/database.e2e-spec.ts`; guarded reset фактически выполнен на локальной development БД, а запуск без подтверждений отклонён.
+- `T01-03` — **Implemented locally в границах M1**: `apps/api/src/modules/auth/`, `apps/api/src/modules/workspaces/`. `apps/api/test/auth.e2e-spec.ts` содержит 19 проходящих HTTP+PostgreSQL tests для `TC-AUTH-001…003`, login-части `TC-AUTH-004`, `TC-AUTH-005…007`, logout-части `TC-AUTH-008`, `TC-AUTH-009…010`.
+- `TC-AUTH-010` использует test-only HTTP controller с production workspace/role guards для доказательства live membership/role reload. Это не заменяет будущие object-level business-action tests. Create-body `TC-AUTH-004`, create/approve/reject/retry `TC-AUTH-008` и конечные tenant/action assertions остаются запланированными на M2/M3/M5.
+- Локальный результат: 24 E2E прошли (19 auth/access, 4 database/seed, 1 health), `pnpm check` прошёл. Полный P0 suite и PDF acceptance ещё не выполнены; связанные `FR-*`/`AC-*` не объявляются закрытыми целиком.
+
 Для каждого requirement SHOULD фиксироваться:
 
 - `Implemented` / `Partial` / `Not implemented`;

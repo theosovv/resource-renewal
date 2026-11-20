@@ -4,8 +4,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.e2e-spec.ts'],
-    testTimeout: 15_000,
-    hookTimeout: 15_000,
+    setupFiles: ['test/e2e.setup.ts'],
+    fileParallelism: false,
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
     restoreMocks: true,
   },
 });

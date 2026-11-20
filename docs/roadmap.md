@@ -44,6 +44,8 @@ M3 реализуется до основной UI-полировки, пото�
 
 **DoD:** `TC-AUTH-001…003`, login-часть `TC-AUTH-004`, `TC-AUTH-005…007`, logout-часть `TC-AUTH-008`, `TC-AUTH-009` и `TC-AUTH-010` проходят; seed не дублируется; роли нельзя передать клиентом. Create-body часть `TC-AUTH-004` и CSRF business mutations выполняются в M2/M3, object-level tenant/action tests окончательно закрываются в M5.
 
+**Факт (2026-11-20):** M1 реализован. Добавлены полная migration и Prisma models, non-destructive repeatable seed, guarded reset, auth/workspaces endpoints, hashed opaque sessions, idle/absolute expiry, CSRF/Origin/CORS и live guards. `TC-AUTH-010` проверен через test-only HTTP controller с production guards и реальной БД; бизнес-action assertions остаются в M2/M5. Локально пройдены 19 auth E2E, 4 database/seed E2E и health E2E, `pnpm check`, чистый guarded reset и пустой Prisma schema drift diff. Полный P0 suite ещё не выполнен.
+
 ## M2. Заявки и бизнес-переходы — 5 часов
 
 | Задача | Содержание | Оценка |

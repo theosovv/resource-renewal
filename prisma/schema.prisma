@@ -1,5 +1,7 @@
-// M0 baseline. Бизнес-сущности, enums и ограничения из docs/schema.sql
-// добавляются версионированными миграциями на этапе M1.
+// Бизнес-схема соответствует docs/schema.sql.
+// CHECK constraints и partial indexes создаются версионированными SQL migrations.
+// Не удалять renewal_requests_one_active_per_resource при последующих diff migrations.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,4 +9,178 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum RenewalRequestStatus {
+  PENDING_APPROVAL
+  REJECTED
+  PROCESSING
+  COMPLETED
+  NEEDS_ATTENTION
+
+  @@map("renewal_request_status")
+}
+
+enum RenewalJobStatus {
+  PENDING
+  RUNNING
+  WAITING_MANUAL
+  SUCCEEDED
+
+  @@map("renewal_job_status")
+}
+
+enum RenewalJobAction {
+  POST
+  RECONCILE
+
+  @@map("renewal_job_action")
+}
+
+enum RenewalEventActorType {
+  USER
+  SYSTEM
+
+  @@map("renewal_event_actor_type")
+}
+
+model User {
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                  String                @unique(map: "users_email_key")
+  displayName            String                @map("display_name")
+  passwordHash           String                @map("password_hash")
+  isActive               Boolean               @default(true) @map("is_active")
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  sessions               AuthSession[]
+  memberships            WorkspaceMembership[]
+  createdRenewalRequests RenewalRequest[]      @relation("RenewalRequestCreator")
+  decidedRenewalRequests RenewalRequest[]      @relation("RenewalRequestDecision")
+  renewalRequestEvents   RenewalRequestEvent[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  tokenHash         String   @unique(map: "auth_sessions_token_hash_key") @map("token_hash") @db.Char(64)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt        DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  idleExpiresAt     DateTime @map("idle_expires_at") @db.Timestamptz(6)
+  absoluteExpiresAt DateTime @map("absolute_expires_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "auth_sessions_user_fk")
+
+  @@index([userId], map: "auth_sessions_user_idx")
+  @@index([absoluteExpiresAt], map: "auth_sessions_absolute_expiry_idx")
+  @@map("auth_sessions")
+}
+
+model Workspace {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String                @unique(map: "workspaces_code_key")
+  name            String
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  memberships     WorkspaceMembership[]
+  resources       Resource[]
+  renewalRequests RenewalRequest[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMembership {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  canInitiate Boolean  @default(false) @map("can_initiate")
+  canApprove  Boolean  @default(false) @map("can_approve")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "workspace_memberships_workspace_fk")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "workspace_memberships_user_fk")
+
+  @@id([workspaceId, userId])
+  @@map("workspace_memberships")
+}
+
+model Resource {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String           @map("workspace_id") @db.Uuid
+  externalId      String           @unique(map: "resources_external_id_key") @map("external_id")
+  name            String
+  expiresOn       DateTime         @map("expires_on") @db.Date
+  amountMinor     BigInt           @map("amount_minor") @db.BigInt
+  currency        String           @db.Char(3)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "resources_workspace_fk")
+  renewalRequests RenewalRequest[]
+
+  @@unique([id, workspaceId], map: "resources_id_workspace_key")
+  @@map("resources")
+}
+
+model RenewalRequest {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String                @map("workspace_id") @db.Uuid
+  resourceId           String                @map("resource_id") @db.Uuid
+  createdBy            String                @map("created_by") @db.Uuid
+  decisionBy           String?               @map("decision_by") @db.Uuid
+  status               RenewalRequestStatus  @default(PENDING_APPROVAL)
+  oldExpiry            DateTime              @map("old_expiry") @db.Date
+  newExpiry            DateTime              @map("new_expiry") @db.Date
+  amountMinor          BigInt                @map("amount_minor") @db.BigInt
+  currency             String                @db.Char(3)
+  periodMonths         Int                   @default(1) @map("period_months") @db.SmallInt
+  operationKey         String                @unique(map: "renewal_requests_operation_key_key") @map("operation_key")
+  providerOperationId  String?               @unique(map: "renewal_requests_provider_operation_key") @map("provider_operation_id")
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  decidedAt            DateTime?             @map("decided_at") @db.Timestamptz(6)
+  completedAt          DateTime?             @map("completed_at") @db.Timestamptz(6)
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_requests_workspace_fk")
+  resource             Resource              @relation(fields: [resourceId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction, map: "renewal_requests_resource_workspace_fk")
+  creator              User                  @relation("RenewalRequestCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_requests_creator_fk")
+  decisionUser         User?                 @relation("RenewalRequestDecision", fields: [decisionBy], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_requests_decision_user_fk")
+  job                  RenewalJob?
+  events               RenewalRequestEvent[]
+
+  @@index([workspaceId, status, createdAt(sort: Desc)], map: "renewal_requests_workspace_status_created_idx")
+  @@index([resourceId, createdAt(sort: Desc)], map: "renewal_requests_resource_created_idx")
+  @@map("renewal_requests")
+}
+
+model RenewalJob {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId         String            @unique(map: "renewal_jobs_request_key") @map("request_id") @db.Uuid
+  status            RenewalJobStatus  @default(PENDING)
+  nextAction        RenewalJobAction  @default(POST) @map("next_action")
+  attemptsInCycle   Int               @default(0) @map("attempts_in_cycle")
+  totalPostAttempts Int               @default(0) @map("total_post_attempts")
+  nextAttemptAt     DateTime          @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  executionVersion  BigInt            @default(0) @map("execution_version") @db.BigInt
+  leaseOwner        String?           @map("lease_owner")
+  leaseExpiresAt    DateTime?         @map("lease_expires_at") @db.Timestamptz(6)
+  lastErrorCode     String?           @map("last_error_code")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(6)
+  request           RenewalRequest    @relation(fields: [requestId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_jobs_request_fk")
+
+  @@map("renewal_jobs")
+}
+
+model RenewalRequestEvent {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId    String                @map("request_id") @db.Uuid
+  actorType    RenewalEventActorType @map("actor_type")
+  actorUserId  String?               @map("actor_user_id") @db.Uuid
+  fromStatus   RenewalRequestStatus? @map("from_status")
+  toStatus     RenewalRequestStatus  @map("to_status")
+  reasonCode   String?               @map("reason_code")
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  request      RenewalRequest        @relation(fields: [requestId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_request_events_request_fk")
+  actorUser    User?                 @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "renewal_request_events_actor_fk")
+
+  @@index([requestId, createdAt(sort: Asc)], map: "renewal_request_events_request_created_idx")
+  @@map("renewal_request_events")
 }
