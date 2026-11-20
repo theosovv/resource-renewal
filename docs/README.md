@@ -9,7 +9,8 @@
 - Выбранный стек: TypeScript, NestJS, React/Vite, PostgreSQL, Prisma, pnpm.
 - M0 Walking skeleton реализован и проверен локально 2026-11-20: monorepo, health flow через реальную PostgreSQL, web/API shells, generated contracts, provider launch и CI workflow.
 - M1 «БД, seed и доступ» реализован 2026-11-20: полная Prisma migration, повторяемый seed/reset, server-side sessions, auth endpoints, CSRF/CORS и live workspace/role guards. Локально пройдены `pnpm check`, Prisma schema/drift checks и 24 E2E с реальной PostgreSQL.
-- Спецификации M2–M6 остаются целевыми: renewals, worker/provider, основной UI и полный P0 acceptance suite ещё не реализованы. Актуальные команды и ограничения находятся в корневом `README.md`.
+- M2 «Заявки и бизнес-переходы» реализован 2026-11-20: resource/request read API, create со snapshot и stable key, approve/reject, durable job, history и manual retry protocol. Локально пройдены `pnpm check`, Prisma validation, 22 новых M2 E2E и полный текущий набор из 46 E2E с реальной PostgreSQL, включая parallel create/approve и настоящий provider stats после reject.
+- Спецификации M3–M6 остаются целевыми: persistent worker/provider, финализация, основной UI и полный P0 acceptance suite ещё не реализованы. Актуальные команды и ограничения находятся в корневом `README.md`.
 
 Ключевые слова **MUST**, **SHOULD**, **MAY** обозначают обязательное, рекомендуемое и необязательное требование соответственно.
 

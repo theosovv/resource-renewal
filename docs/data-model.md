@@ -141,7 +141,7 @@ WHERE status IN (
 );
 ```
 
-Нельзя заменять это только предварительным `SELECT`: два параллельных запроса могут одновременно увидеть отсутствие записи. Сервис ловит PostgreSQL `23505` именно для этого constraint и возвращает `409 REQUEST_ALREADY_ACTIVE`.
+Нельзя заменять это только предварительным `SELECT`: два параллельных запроса могут одновременно увидеть отсутствие записи. Create использует этот partial index как точный `ON CONFLICT (resource_id) WHERE status IN (...active...) DO NOTHING` arbiter; пустой `RETURNING` означает `409 REQUEST_ALREADY_ACTIVE`. Другие unique constraints этот arbiter не обрабатывает. Если реализация вместо этого отображает PostgreSQL `23505`, mapping обязан использовать точное имя `renewal_requests_one_active_per_resource`, а не только имя колонки.
 
 `REJECTED` и `COMPLETED` исключены из индекса, поэтому после завершения допускается новая заявка, а вся история сохраняется.
 
@@ -157,8 +157,8 @@ Login атомарно создаёт session с уникальным `token_has
 
 1. `SELECT ... FOR UPDATE` ресурса в указанном workspace; после ожидания lock строка читается заново;
 2. snapshot снимается с заблокированной строки, поэтому параллельная финализация не может вклиниться между read и insert;
-3. insert request со snapshot и UUID operation key;
-4. insert creation event;
+3. insert request со snapshot и UUID operation key через `ON CONFLICT` с exact partial-index predicate; пустой `RETURNING` → `409 REQUEST_ALREADY_ACTIVE`;
+4. insert creation event только для успешно вставленной request;
 5. commit освобождает resource lock.
 
 Active unique index остаётся обязательным: resource lock сериализует корректный snapshot, а index окончательно запрещает вторую активную запись. Наличие membership и права проверяется сервером; клиент не передаёт creator/snapshot.

@@ -2,11 +2,11 @@
 
 Приложение для согласования и выполнения заявок на продление ресурсов с ограниченным сроком действия.
 
-> **Текущий статус — M1 «БД, seed и доступ».** Реализованы полная PostgreSQL-схема, версионированная Prisma migration, повторяемый seed, server-side sessions, login/logout/me/csrf, список доступных workspaces, CSRF/CORS и live workspace/role guards. Бизнес-заявки, worker/provider flow и основной UI относятся к следующим этапам и ещё не реализованы.
+> **Текущий статус — M2 «Заявки и бизнес-переходы».** Реализованы полная PostgreSQL-схема, seed, server-side sessions и CSRF/CORS, resource/request API, создание со snapshot, approve/reject/manual retry, durable job и история. Persistent worker, provider client, финализация ресурса и основной UI относятся к следующим этапам и ещё не реализованы.
 
 Исходное задание: [`Fullstack_практическое_задание.pdf`](./Fullstack_практическое_задание.pdf). PDF сохранён в репозитории; исходный `provider_simulator.py` извлечён из его вложения без изменений в [`tools/provider/provider_simulator.py`](./tools/provider/provider_simulator.py).
 
-## Что работает на M1
+## Что работает на M1–M2
 
 - pnpm workspace с TypeScript strict mode, NestJS API `/api/v1`, React/Vite health shell и generated OpenAPI types;
 - PostgreSQL 16.11 в Docker Compose и Prisma Client;
@@ -20,10 +20,14 @@
 - session-bound HMAC-SHA-256 CSRF, проверка Origin/Fetch Metadata и credentials-aware CORS только для `WEB_ORIGIN`;
 - активность пользователя и memberships перечитываются из БД на каждый authenticated request; membership/role guards используют только серверные данные;
 - date-only и safe-bigint adapters;
-- unit/component tests и 24 API E2E на реальной PostgreSQL: auth/access, seed/constraints и health;
+- workspace-scoped resource list/detail и request list/detail с `resourceId`/`status` filters, execution state и history;
+- create со snapshot `oldExpiry → oldExpiry + 30 calendar days`, stable UUID `operationKey`, USER creation event и resource row lock;
+- approve/reject с request locks, self-decision и invalid-state checks; approve также проверяет snapshot под resource lock и атомарно создаёт `PENDING/POST` job;
+- manual retry из `NEEDS_ATTENTION`: request/job locks, прежний key/total counter, новый `PENDING/RECONCILE` cycle и USER event;
+- unit/component tests и 46 API E2E на реальной PostgreSQL: auth/access, tenant isolation, seed/constraints, health, transitions и реальные parallel create/approve;
 - GitHub Actions workflow с migrations, seed и теми же E2E.
 
-**Не реализовано:** resource/request API, создание и согласование заявок, history endpoints, persistent worker, provider client, login/business UI и полный PDF acceptance flow. P0 suite целиком ещё не выполнен и не объявляется пройденным.
+**Не реализовано:** persistent worker, provider client, обработка provider result и финализация ресурса, login/business UI и полный PDF acceptance flow. На M2 approved job остаётся в БД, но не выполняется; `COMPLETED` и system history появятся в M3. P0 suite целиком ещё не выполнен и не объявляется пройденным.
 
 ## Точные версии
 
@@ -94,7 +98,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. На M1 web по-прежнему показывает только health flow; login UI появится в M4.
+API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. На M2 web по-прежнему показывает только health flow; login UI появится в M4.
 
 ### 4. Запустить provider simulator
 
@@ -103,7 +107,7 @@ pnpm dev:provider
 curl --fail http://127.0.0.1:8091/health
 ```
 
-Ожидается `{"status":"ok"}`. Simulator хранит операции только в памяти процесса. На M1 приложение ещё не вызывает его; запуск нужен для проверки инфраструктурного контура и последующих этапов.
+Ожидается `{"status":"ok"}`. Simulator хранит операции только в памяти процесса. На M2 приложение ещё не вызывает его из business flow; M2 E2E использует `/stats` и GET по rejected operation key, чтобы доказать отсутствие операций. Запуск нужен для проверки инфраструктурного контура и последующих этапов.
 
 ## Локальные учётные записи
 
@@ -146,6 +150,23 @@ curl --fail-with-body -b /tmp/rr-cookies.txt -c /tmp/rr-cookies.txt \
 
 Успешный logout возвращает `204`, отзывает только текущую session и очищает cookie. Raw session token не возвращается в JSON и не должен сохраняться в Web Storage. CSRF token SPA будет хранить только в памяти.
 
+## Business API на M2
+
+Все пути ниже находятся под `/api/v1`, требуют session cookie и membership в `workspaceId` из path. POST также требует `Origin` из configured `WEB_ORIGIN` и session-bound `X-CSRF-Token`.
+
+| Метод и путь | Назначение |
+|---|---|
+| `GET /workspaces/{workspaceId}/resources` | Ресурсы, date-only/minor-unit значения и `activeRequestId` |
+| `GET /workspaces/{workspaceId}/resources/{resourceId}` | Resource detail внутри workspace |
+| `GET /workspaces/{workspaceId}/requests` | Request list; optional query `resourceId` и `status` |
+| `POST /workspaces/{workspaceId}/requests` | Create с телом ровно `{"resourceId":"UUID"}`; требуется `INITIATOR` |
+| `GET /workspaces/{workspaceId}/requests/{requestId}` | Snapshot, execution state, resource и полная history |
+| `POST /workspaces/{workspaceId}/requests/{requestId}/approve` | `PENDING_APPROVAL → PROCESSING` и durable job; требуется другой `APPROVER` |
+| `POST /workspaces/{workspaceId}/requests/{requestId}/reject` | `PENDING_APPROVAL → REJECTED` без job/provider/resource mutation |
+| `POST /workspaces/{workspaceId}/requests/{requestId}/retry` | `NEEDS_ATTENTION → PROCESSING` с прежним key и `RECONCILE`; требуется `APPROVER` |
+
+Create возвращает `201`, approve/reject/retry — `200`. Ответ create/detail содержит `operationKey`, поэтому его не нужно искать через SQL. Вторая активная заявка возвращает `409 REQUEST_ALREADY_ACTIVE`; неверный переход — `409 INVALID_STATE_TRANSITION`; изменённый resource snapshot при approve — `409 RESOURCE_SNAPSHOT_MISMATCH`; собственное решение — `403 SELF_DECISION_FORBIDDEN`. До M3 никакой из этих endpoints не выполняет provider HTTP, а approved job остаётся `PENDING` до появления worker.
+
 ## Migrations, seed и сброс
 
 | Команда | Назначение |
@@ -173,15 +194,15 @@ NODE_ENV=development CONFIRM_DATABASE_RESET=resource_renewal pnpm db:reset:test
 pnpm lint              # ESLint для всего monorepo и Prisma scripts
 pnpm typecheck         # strict TypeScript для Prisma scripts и workspace-пакетов
 pnpm test              # 13 API unit tests + 2 web component tests
-pnpm test:e2e          # 24 API E2E; реальная PostgreSQL, migrations и seed
+pnpm test:e2e          # 46 API E2E; реальная PostgreSQL, migrations, seed и M2 provider stats
 pnpm build             # contracts, API и production web bundle
 pnpm check             # lint + typecheck + unit/component tests + build
 pnpm prisma:validate   # валидация Prisma schema; требует DATABASE_URL
 ```
 
-`test:e2e` создаёт отдельную временную схему `rr_test_*` для каждого test file, применяет туда migrations, запускает seed перед каждым тестом и удаляет схему после завершения. Постоянная development-схема `public` тестами не очищается. Пользователю PostgreSQL нужны права `CREATE`/`DROP SCHEMA`; локальный Compose user их имеет. Test files выполняются последовательно.
+`test:e2e` создаёт отдельную временную схему `rr_test_*` для каждого test file, применяет туда migrations, запускает seed перед каждым тестом и удаляет схему после завершения. Постоянная development-схема `public` тестами не очищается. Пользователю PostgreSQL нужны права `CREATE`/`DROP SCHEMA`; локальный Compose user их имеет. Test files выполняются последовательно. Для M2 reject assertions suite сам запускает и останавливает свежий настоящий simulator на `127.0.0.1:8091`; приложение provider не вызывает. Перед `pnpm test:e2e` нужно остановить отдельно запущенный `pnpm dev:provider`: тест не подключается к potentially dirty процессу и не останавливает чужой simulator.
 
-M1 auth tests покрывают `TC-AUTH-001…010` в границах roadmap: login-часть `TC-AUTH-004`, logout-часть `TC-AUTH-008` и live guards `TC-AUTH-010`. Для role-downgrade используется test-only HTTP controller с production guards и реальной БД; он не входит в production `AppModule`. Проверки create/approve/reject/retry и object-level tenant/action остаются в M2/M3/M5.
+M1 auth tests покрывают `TC-AUTH-001…010` в границах roadmap. Для role-downgrade используется test-only HTTP controller с production guards и реальной БД; он не входит в production `AppModule`. M2 suite `apps/api/test/renewals.e2e-spec.ts` добавляет 22 HTTP+PostgreSQL tests: `TC-REQ-001…004`, `TC-STATE-001…005/007`, `TC-AUTHZ-001…003`, object-level tenant checks, create/approve/reject/retry CSRF, user history, resource filters, atomic rollback и manual retry state. Currency-mismatch fixture временно удаляет и восстанавливает `resources_currency_check` только внутри disposable test schema; production constraint не ослабляется. Completed/system history, create-after-completed и provider recovery остаются в M3/M5.
 
 Дополнительные команды:
 
@@ -224,7 +245,7 @@ Preview проксирует `/api` на `API_PROXY_TARGET`. Deployment и HA н
 | `SESSION_IDLE_TTL_SECONDS` | `1800` | Sliding idle expiry, 30 минут |
 | `SESSION_ABSOLUTE_TTL_SECONDS` | `28800` | Непродлеваемый absolute expiry, 8 часов |
 | `PROVIDER_BASE_URL`, `PROVIDER_TIMEOUT_MS` | `http://127.0.0.1:8091`, `5000` | Конфигурация provider client для M3 |
-| `WORKER_*`, `RENEWAL_*` | См. example | Конфигурация persistent worker для M3; worker на M1 не запускается |
+| `WORKER_*`, `RENEWAL_*` | См. example | Конфигурация persistent worker для M3; worker на M2 не запускается |
 
 Не помещайте реальные секреты в `.env.example`, логи или git. Password hash, raw session/CSRF tokens, cookies и Authorization не логируются.
 
@@ -235,6 +256,8 @@ apps/
 ├── api/
 │   ├── src/modules/auth/       # Sessions, CSRF, cookie и access guards
 │   ├── src/modules/workspaces/ # Доступные текущему пользователю workspaces
+│   ├── src/modules/resources/  # Workspace-scoped resource read API
+│   ├── src/modules/renewals/   # Request API, transitions, jobs и history
 │   ├── src/modules/health/
 │   └── test/                   # HTTP + реальная PostgreSQL, isolated schemas
 └── web/                        # M0 health shell; основной UI запланирован на M4
@@ -257,13 +280,14 @@ Frontend зависит только от HTTP-контракта и не имп
 
 ## Ограничения и следующий этап
 
-- M1 не добавляет endpoints прямого изменения resources и не реализует бизнес-заявки/jobs/history operations; таблицы и constraints для них уже созданы.
-- Работник и provider calls отсутствуют; `WORKER_ENABLED=true` в example не запускает worker на M1.
-- Login/business UI и полный PDF recovery/acceptance flow ещё не реализованы.
-- Периодическая физическая очистка старых sessions не запланирована в M1; expired/revoked records остаются недействительными независимо от cleanup.
-- P1 fault-injection tests и остальной P0 suite остаются предметом M2–M5.
+- Прямого изменения resource expiry/amount через API нет; resource меняет только будущая transactional finalization в M3.
+- Persistent worker и provider client отсутствуют; `WORKER_ENABLED=true` в example не запускает worker на M2. Approved jobs сохраняются, но пока не выполняются.
+- `COMPLETED`, system completion/attention history, create-after-completed и полный PDF recovery/acceptance flow ещё не реализованы.
+- Login/business UI остаётся на M4.
+- Периодическая физическая очистка старых sessions не запланирована; expired/revoked records остаются недействительными независимо от cleanup.
+- P1 fault-injection tests и остальной P0 suite остаются предметом M3–M5.
 
-Следующий этап — **M2: resource/request API, создание заявки и бизнес-переходы** по [`docs/roadmap.md`](./docs/roadmap.md).
+Следующий этап — **M3: persistent worker, provider integration, recovery и финализация** по [`docs/roadmap.md`](./docs/roadmap.md).
 
 ## Документация
 
@@ -282,7 +306,7 @@ Frontend зависит только от HTTP-контракта и не имп
 | [Traceability Matrix](./docs/traceability-matrix.md) | Требование → решение → задача → тест |
 | [ADR](./docs/adr/) | Причины архитектурных решений |
 
-Целевые гарантии worker описаны в [`docs/reliability.md`](./docs/reliability.md), но их описание не означает реализацию на M1.
+Целевые гарантии worker описаны в [`docs/reliability.md`](./docs/reliability.md), но их описание не означает реализацию на M2.
 
 ## Правила разработки
 

@@ -90,6 +90,14 @@
 - `TC-AUTH-010` использует test-only HTTP controller с production workspace/role guards для доказательства live membership/role reload. Это не заменяет будущие object-level business-action tests. Create-body `TC-AUTH-004`, create/approve/reject/retry `TC-AUTH-008` и конечные tenant/action assertions остаются запланированными на M2/M3/M5.
 - Локальный результат: 24 E2E прошли (19 auth/access, 4 database/seed, 1 health), `pnpm check` прошёл. Полный P0 suite и PDF acceptance ещё не выполнены; связанные `FR-*`/`AC-*` не объявляются закрытыми целиком.
 
+### Снимок M2 — 2026-11-20
+
+- `T02-01` — **Implemented locally**: `apps/api/src/modules/resources/` и read-часть `apps/api/src/modules/renewals/`. Resource list/detail, request list/detail, `resourceId`/`status` filters, date-only/minor-unit serialization, execution state, actor history и `activeRequestId` покрыты `apps/api/test/renewals.e2e-spec.ts`.
+- `T02-02` — **Implemented locally**: create выполняет resource `FOR UPDATE` до snapshot, рассчитывает +30 calendar days, сохраняет stable UUID operation key и USER creation event в одной транзакции. Partial active index conflict проверен последовательным и реальным parallel create (`TC-REQ-001…004`); другие unique violations не отображаются в business `409`.
+- `T02-03` — **Implemented locally**: approve/reject используют scoped request locks; approve дополнительно блокирует resource, повторно проверяет status/self-decision/snapshot и атомарно создаёт `PENDING/POST` job + history. Reject не затрагивает resource/job/provider. `TC-STATE-001…005/007`, `TC-AUTHZ-001…003`, tenant/CSRF и user-action `TC-HIST-001` зелёные; forced history failure доказывает rollback approve/job (`TC-REL-001`).
+- Manual retry реализован по `docs/reliability.md` раньше основного M3 worker: request/job locks, `WAITING_MANUAL` guard, прежний key/total counter, `PENDING/RECONCILE`, cleared lease и USER event. Это не закрывает provider recovery/finalization.
+- Локальный результат: `pnpm check`, `pnpm prisma:validate`, 22 новых M2 tests и 46/46 всего E2E suite прошли на реальной PostgreSQL; reject дополнительно проверен через stats и GET настоящего `provider_simulator.py`. `COMPLETED`, system history, create-after-completed, worker/provider execution и остальной P0/PDF acceptance остаются **Not implemented** для M3–M5.
+
 Для каждого requirement SHOULD фиксироваться:
 
 - `Implemented` / `Partial` / `Not implemented`;

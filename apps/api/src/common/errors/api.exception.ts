@@ -58,4 +58,62 @@ export class ApiException extends HttpException {
       HttpStatus.FORBIDDEN,
     );
   }
+
+  static selfDecisionForbidden(): ApiException {
+    return new ApiException(
+      {
+        status: HttpStatus.FORBIDDEN,
+        code: 'SELF_DECISION_FORBIDDEN',
+        message: 'The request creator cannot approve or reject it',
+      },
+      HttpStatus.FORBIDDEN,
+    );
+  }
+
+  static resourceNotFound(): ApiException {
+    return new ApiException(
+      { status: HttpStatus.NOT_FOUND, code: 'RESOURCE_NOT_FOUND', message: 'Resource not found' },
+      HttpStatus.NOT_FOUND,
+    );
+  }
+
+  static requestNotFound(): ApiException {
+    return new ApiException(
+      { status: HttpStatus.NOT_FOUND, code: 'REQUEST_NOT_FOUND', message: 'Request not found' },
+      HttpStatus.NOT_FOUND,
+    );
+  }
+
+  static requestAlreadyActive(): ApiException {
+    return new ApiException(
+      {
+        status: HttpStatus.CONFLICT,
+        code: 'REQUEST_ALREADY_ACTIVE',
+        message: 'The resource already has an active renewal request',
+      },
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  static invalidStateTransition(): ApiException {
+    return new ApiException(
+      {
+        status: HttpStatus.CONFLICT,
+        code: 'INVALID_STATE_TRANSITION',
+        message: 'The request state has already changed',
+      },
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  static resourceSnapshotMismatch(): ApiException {
+    return new ApiException(
+      {
+        status: HttpStatus.CONFLICT,
+        code: 'RESOURCE_SNAPSHOT_MISMATCH',
+        message: 'The resource no longer matches the request snapshot',
+      },
+      HttpStatus.CONFLICT,
+    );
+  }
 }

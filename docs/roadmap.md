@@ -56,6 +56,8 @@ M3 реализуется до основной UI-полировки, пото�
 
 **DoD:** `TC-REQ-001…004`, `TC-STATE-001…005`, `TC-STATE-007`, `TC-AUTHZ-002…003` и user-action часть `TC-HIST-001` зелёные; параллельные create/approve проверены реальной PostgreSQL. Completed/system history, create-after-completed и tenant retry проверяются после M3; provider ещё не вызывается, кроме stats assertions для отсутствия операций.
 
+**Факт (2026-11-20):** M2 реализован. Добавлены resource/request list/detail, filters, create с resource lock/snapshot/+30/stable operation key, approve/reject с locks и history, atomic durable job и manual retry с прежним key. Точный partial-index conflict отображается в `REQUEST_ALREADY_ACTIVE`. `apps/api/test/renewals.e2e-spec.ts` содержит 22 проходящих HTTP+PostgreSQL tests, включая реальные parallel create/approve, три stale snapshot variants, rollback approve при forced history failure, tenant/role/CSRF и stats настоящего provider после reject. Полный текущий E2E suite — 46 passed; `pnpm check` и `pnpm prisma:validate` также прошли. Worker/provider execution, финализация и system/completed history остаются в M3; полный P0 ещё не выполнен.
+
 ## M3. Надёжная интеграция — 7 часов
 
 | Задача | Содержание | Оценка |
