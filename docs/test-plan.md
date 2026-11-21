@@ -19,7 +19,7 @@
 Walking skeleton имеет отдельные smoke checks, которые не заменяют P0:
 
 - `apps/api/src/modules/health/*.spec.ts` — unit-поведение health module и сокрытие DB error details;
-- `apps/web/src/app.test.tsx` — loading/success/error/retry и вызов `/api/v1/health` с credentials;
+- на M0 `apps/web/src/app.test.tsx` проверял health flow; на M4 этот suite заменён login/create/session сценариями, а `request-detail-page.test.tsx` покрывает approver/worker states и `lib/format.test.ts` — date/money formatting;
 - `apps/api/test/health.e2e-spec.ts` — HTTP `GET /api/v1/health` и реальный SQL round trip в PostgreSQL, без mock Prisma;
 - provider `/health` и browser smoke через Vite proxy — запуск предоставленного процесса и фактическое web→API соединение.
 

@@ -82,6 +82,8 @@ M3 реализуется до основной UI-полировки, пото�
 
 **DoD:** `TC-UI-001…006`; основной flow не требует devtools/SQL, ошибки API понятны, нет horizontal page scroll.
 
+**Факт (2026-11-21):** M4 реализован. Добавлены React Router, TanStack Query и React Hook Form, protected routes, login/logout/bootstrap, workspace gate, in-memory CSRF и generated-contract API client. Реализованы resource/request lists, counters, filters, create/detail/history, approve/reject/retry confirmations, execution/provider details и 2,5-секундный polling `PROCESSING`. 16 web unit/component tests покрывают login → create, approver actions, self-decision, `401/403/409`, CSRF refresh/repeat, loading/empty/error, keyboard dialog и date/money helpers. Реальный browser smoke с API/PostgreSQL/simulator прошёл login initiator → create → logout → login approver → approve → automatic `COMPLETED`; UI показал resource expiry `31.03.2027`, provider ID и SYSTEM history, provider подтвердил `started_count=1` и `operation_count=1`. Chromium checks на 1440×900 и 390 px подтвердили 32 px desktop title, 1120 px content и отсутствие horizontal page overflow. Полный автоматический Playwright/PDF/P0 acceptance остаётся на M5.
+
 ## M5. Автоматическая приёмка — 6 часов
 
 Часть тестов пишется вместе с M1–M4; этот этап закрывает инфраструктуру и полный сценарий, а не начинает тестирование с нуля.

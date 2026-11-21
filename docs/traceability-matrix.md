@@ -108,6 +108,14 @@
 - `apps/api/test/reliability-fault.e2e-spec.ts` дополнительно закрывает `TC-REL-012…018`, real concurrent claims, старый lease owner и deterministic create/finalize lock waits через `pg_stat_activity`. Отдельные crash-boundary сценарии `TC-REL-006/007` остаются **Not implemented** и перечислены в README.
 - Локальный результат: `pnpm check` (26 API unit + 2 web component, production build), `pnpm prisma:validate` и 57/57 E2E прошли. Миграция и публичный OpenAPI не изменялись: существующей M1 схемы и M2 contract достаточно. Полный UI/PDF/P0 acceptance остаётся предметом M4–M5.
 
+### Снимок M4 — 2026-11-21
+
+- `T04-01` — **Implemented locally**: React Router protected routes, login/logout, session bootstrap, workspace selection/gate, `credentials: include` и in-memory CSRF в `apps/web/src/features/auth/`, `features/workspaces/` и `api/client.ts`. Session/CSRF tokens не записываются в Web Storage; `401` очищает query cache, CSRF refresh требует явного повтора mutation.
+- `T04-02` — **Implemented locally**: resource/request lists, counters, active links, resource history filter, status badges и date/money formatting в `features/renewals/renewals-page.tsx` и `lib/format.ts`.
+- `T04-03` — **Implemented locally**: create dialog, detail со snapshot/execution/provider identifiers, full history и approve/reject/retry confirmation flows. Operation key доступен для копирования без SQL/devtools.
+- `T04-04` — **Implemented locally**: loading/empty/error/refetch states, `401/403/409`, polling, native accessible dialogs, focus/labels, design tokens и responsive cards. На 390 px исправлен обнаруженный browser check дефект высоты mobile action; итоговые метрики не содержат horizontal page overflow.
+- Локальный результат: `pnpm check` (26 API unit + 16 web unit/component, production build), 57/57 API E2E и `pnpm prisma:validate` прошли. `TC-UI-001…006` проверены комбинацией component tests и реального browser smoke: login → create → approver login → approve → `COMPLETED`, provider `started_count=1`/`operation_count=1`, desktop 1440×900 и mobile 390 px. Это не заменяет автоматический Playwright suite `T05-04`; полный PDF/P0 acceptance остаётся на M5.
+
 Для каждого requirement SHOULD фиксироваться:
 
 - `Implemented` / `Partial` / `Not implemented`;

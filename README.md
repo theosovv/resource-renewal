@@ -2,13 +2,13 @@
 
 Приложение для согласования и выполнения заявок на продление ресурсов с ограниченным сроком действия.
 
-> **Текущий статус — M3 «Надёжная интеграция».** Реализованы полная PostgreSQL-схема, seed, server-side sessions и CSRF/CORS, resource/request API, бизнес-переходы, persistent worker, provider integration, recovery и transactional finalization. Основной UI и полный PDF acceptance flow относятся к следующим этапам.
+> **Текущий статус — M4 «Frontend».** Реализованы полная PostgreSQL-схема, seed, server-side sessions и CSRF/CORS, resource/request API, бизнес-переходы, persistent worker, provider integration, recovery, transactional finalization и основной React SPA. Полный PDF acceptance flow и автоматический Playwright smoke относятся к M5.
 
 Исходное задание: [`Fullstack_практическое_задание.pdf`](./Fullstack_практическое_задание.pdf). PDF сохранён в репозитории; исходный `provider_simulator.py` извлечён из его вложения без изменений в [`tools/provider/provider_simulator.py`](./tools/provider/provider_simulator.py).
 
-## Что работает на M1–M3
+## Что работает на M1–M4
 
-- pnpm workspace с TypeScript strict mode, NestJS API `/api/v1`, React/Vite health shell и generated OpenAPI types;
+- pnpm workspace с TypeScript strict mode, NestJS API `/api/v1`, React/Vite SPA и generated OpenAPI types;
 - PostgreSQL 16.11 в Docker Compose и Prisma Client;
 - migration `20261120130000_m1_business_schema` со всеми entities/enums/constraints/indexes из `docs/schema.sql`, включая partial unique index одной активной заявки;
 - повторяемый seed двух workspaces, четырёх users/memberships и трёх resources; повторный запуск не дублирует записи и не откатывает бизнес-/authorization-состояние;
@@ -29,9 +29,14 @@
 - persisted POST counters и `next_attempt_at`, не более трёх automatic POST в cycle, final RECONCILE и атомарный переход в `NEEDS_ATTENTION/WAITING_MANUAL`;
 - однократная transactional finalization `request → job → resource`, conditional resource update по snapshot, SYSTEM history и create-after-completed;
 - unit/component tests и 57 API E2E на реальной PostgreSQL: auth/access, tenant isolation, transitions, concurrency, provider recovery, fencing, three-attempt/manual retry и finalization conflicts;
-- GitHub Actions workflow с migrations, seed и теми же E2E.
+- GitHub Actions workflow с migrations, seed и теми же E2E;
+- login/logout, восстановление session после reload, protected routing и выбор доступного workspace;
+- resource/request lists, counters, status badges, date-only/minor-unit formatting и history фильтр ресурса;
+- accessible create/confirmation dialogs, request detail со snapshot/execution/operation key и действия approve/reject/retry;
+- loading/empty/error/`401`/`403`/`409` states, CSRF refresh с явным повтором действия, polling `PROCESSING` каждые 2,5 секунды;
+- адаптивный desktop/mobile UI, keyboard/focus-visible controls и 16 web unit/component tests.
 
-**Не реализовано:** login/business UI, Playwright smoke и полный PDF acceptance flow. API/worker recovery и P0 reliability tests M3 выполнены, но весь P0 suite целиком ещё не объявляется пройденным до завершения UI и M5. Специализированные crash-boundary tests `TC-REL-006/007` остаются в remaining coverage.
+**Не реализовано:** автоматический Playwright smoke и полный PDF acceptance flow. M4 UI сценарии проверены component tests и реальным browser smoke, но весь P0 suite целиком ещё не объявляется пройденным до M5. Специализированные crash-boundary tests `TC-REL-006/007` остаются в remaining coverage.
 
 ## Точные версии
 
@@ -43,6 +48,9 @@
 | Python | `3.14.9`; сторонние Python-пакеты не нужны |
 | NestJS | `12.6.0` |
 | React | `19.3.1` |
+| React Router | `7.18.6` |
+| TanStack Query | `5.108.1` |
+| React Hook Form | `7.92.0` |
 | Vite | `8.3.8` |
 | Prisma | `6.19.3` |
 | Argon2 | `argon2@0.44.0`, режим Argon2id |
@@ -91,7 +99,7 @@ pnpm dev
 
 Команда запускает оба процесса и останавливает их по `Ctrl+C`:
 
-- web health shell: <http://127.0.0.1:5173>;
+- web SPA: <http://127.0.0.1:5173>;
 - API health: <http://127.0.0.1:3000/api/v1/health>;
 - login API: <http://127.0.0.1:3000/api/v1/auth/login>.
 
@@ -102,7 +110,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. При `WORKER_ENABLED=true` persistent worker запускается в том же процессе API; для выполнения approved jobs должен быть запущен provider simulator. Неожиданный сбой polling/result write является fail-fast и завершает процесс, чтобы API не оставался живым с незаметно остановленным worker. Web по-прежнему показывает только health flow; login UI появится в M4.
+API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. При `WORKER_ENABLED=true` persistent worker запускается в том же процессе API; для выполнения approved jobs должен быть запущен provider simulator. Неожиданный сбой polling/result write является fail-fast и завершает процесс, чтобы API не оставался живым с незаметно остановленным worker. Web открывает login, а после входа — список ресурсов и заявок выбранного workspace.
 
 ### 4. Запустить provider simulator
 
@@ -152,7 +160,7 @@ curl --fail-with-body -b /tmp/rr-cookies.txt -c /tmp/rr-cookies.txt \
   http://127.0.0.1:3000/api/v1/auth/logout
 ```
 
-Успешный logout возвращает `204`, отзывает только текущую session и очищает cookie. Raw session token не возвращается в JSON и не должен сохраняться в Web Storage. CSRF token SPA будет хранить только в памяти.
+Успешный logout возвращает `204`, отзывает только текущую session и очищает cookie. Raw session token не возвращается в JSON и не сохраняется в Web Storage. SPA хранит CSRF token только в памяти и после reload получает его заново через `/auth/csrf`.
 
 ## Business API и worker на M3
 
@@ -170,6 +178,15 @@ curl --fail-with-body -b /tmp/rr-cookies.txt -c /tmp/rr-cookies.txt \
 | `POST /workspaces/{workspaceId}/requests/{requestId}/retry` | `NEEDS_ATTENTION → PROCESSING` с прежним key и `RECONCILE`; требуется `APPROVER` |
 
 Create возвращает `201`, approve/reject/retry — `200`. Ответ create/detail содержит `operationKey`, поэтому его не нужно искать через SQL. Вторая активная заявка возвращает `409 REQUEST_ALREADY_ACTIVE`; неверный переход — `409 INVALID_STATE_TRANSITION`; изменённый resource snapshot при approve — `409 RESOURCE_SNAPSHOT_MISMATCH`; собственное решение — `403 SELF_DECISION_FORBIDDEN`. HTTP endpoints не выполняют provider call синхронно: после commit approve worker асинхронно обрабатывает durable job.
+
+### Web UI
+
+- `/login` — локальный вход; `/w/:workspaceId/renewals` — resources, requests, counters и создание; `/w/:workspaceId/renewals/:requestId` — snapshot, execution, operation identifiers и history.
+- Browser отправляет HttpOnly cookie с `credentials: include`. После reload SPA восстанавливает user через `/auth/me` и CSRF через `/auth/csrf`; ни session, ни CSRF token не записываются в Web Storage.
+- `401` очищает queries и ведёт на login с возвратом на исходный внутренний URL после повторного входа. `403` не отзывает session. При `CSRF_INVALID` SPA получает новый token и просит пользователя явно повторить mutation, не выполняя автоматический replay.
+- Create/approve/reject/retry имеют accessible native dialogs, labels, Escape/focus handling и понятные последствия. `409` вызывает refetch и остаётся видимым текстом рядом с действием.
+- Detail и list polling выполняется каждые 2,5 секунды только для `PROCESSING`; terminal/`NEEDS_ATTENTION` states обновляются вручную или после mutation. Operation key можно скопировать из detail для provider GET/stats.
+- Desktop layout использует контент `min(1120px, 100% - 64px)`, заголовок 32 px и заданные цвета; при 390 px таблицы превращаются в карточки без horizontal page scroll.
 
 ### Состояния и восстановление
 
@@ -211,7 +228,7 @@ NODE_ENV=development CONFIRM_DATABASE_RESET=resource_renewal pnpm db:reset:test
 ```bash
 pnpm lint              # ESLint для всего monorepo и Prisma scripts
 pnpm typecheck         # strict TypeScript для Prisma scripts и workspace-пакетов
-pnpm test              # 26 API unit tests + 2 web component tests
+pnpm test              # 26 API unit tests + 16 web unit/component tests
 pnpm test:e2e          # 57 API E2E; реальная PostgreSQL, migrations, seed, real/fault providers
 pnpm build             # contracts, API и production web bundle
 pnpm check             # lint + typecheck + unit/component tests + build
@@ -284,7 +301,7 @@ apps/
 │   ├── src/modules/provider/   # Typed isolated provider client
 │   ├── src/modules/health/
 │   └── test/                   # HTTP + реальная PostgreSQL, isolated schemas
-└── web/                        # M0 health shell; основной UI запланирован на M4
+└── web/                        # React SPA: login, lists, detail/history и approver actions
 packages/
 └── contracts/                  # Генерируемые типы OpenAPI
 prisma/
@@ -305,12 +322,12 @@ Frontend зависит только от HTTP-контракта и не имп
 ## Ограничения и следующий этап
 
 - Прямого изменения resource expiry/amount через API нет; resource меняет только transactional finalization worker.
-- Login/business UI и Playwright smoke остаются на M4; полный PDF acceptance и единый финальный P0 run — на M5.
+- Автоматический Playwright smoke и единый финальный P0 run остаются на M5; M4 browser smoke не заменяет повторяемый Playwright suite.
 - Специализированные P1 crash-boundary tests `TC-REL-006` (до первого POST) и `TC-REL-007` (после provider 200 до finalization) ещё не реализованы; это не заменяет пройденный обязательный recovery `TC-REL-003`.
 - Периодическая физическая очистка старых sessions не запланирована; expired/revoked records остаются недействительными независимо от cleanup.
 - Worker обеспечивает at-least-once processing, не exactly-once execution. Перезапуск provider simulator во время pending operation и потеря PostgreSQL находятся вне гарантий MVP.
 
-Следующий этап — **M4: login/business UI, history и действия approver** по [`docs/roadmap.md`](./docs/roadmap.md).
+Следующий этап — **M5: Playwright smoke и полный PDF/P0 acceptance** по [`docs/roadmap.md`](./docs/roadmap.md).
 
 ## Документация
 
