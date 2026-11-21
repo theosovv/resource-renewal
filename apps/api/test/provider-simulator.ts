@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 
 const providerBaseUrl = 'http://127.0.0.1:8091';
@@ -39,8 +40,15 @@ export async function startProviderSimulator(): Promise<ChildProcess> {
   throw new Error('Provider simulator did not become healthy');
 }
 
-export function stopProviderSimulator(child: ChildProcess | null): void {
-  child?.kill('SIGTERM');
+export async function stopProviderSimulator(child: ChildProcess | null): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  const exited = once(child, 'exit');
+  child.kill('SIGTERM');
+  const forceKill = setTimeout(() => child.kill('SIGKILL'), 2_000);
+  await exited;
+  clearTimeout(forceKill);
 }
 
 export async function providerOperationCount(resourceId: string): Promise<number> {
@@ -56,6 +64,27 @@ export async function providerOperationCount(resourceId: string): Promise<number
     throw new Error('Provider stats did not contain operation_count');
   }
   return body.operation_count;
+}
+
+export interface SimulatorOperation {
+  operation_id: string;
+  status: string;
+  started_count: number;
+  resource_id: string;
+  period_months: number;
+  amount_minor: number;
+  currency: string;
+}
+
+export async function providerOperation(operationKey: string): Promise<SimulatorOperation> {
+  const response = await fetch(
+    `${providerBaseUrl}/renewals/${encodeURIComponent(operationKey)}`,
+    { signal: AbortSignal.timeout(2_000) },
+  );
+  if (!response.ok) {
+    throw new Error(`Provider operation returned HTTP ${response.status}`);
+  }
+  return (await response.json()) as SimulatorOperation;
 }
 
 export async function providerOperationStatus(operationKey: string): Promise<number> {

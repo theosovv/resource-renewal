@@ -26,6 +26,7 @@ process.env.WEB_ORIGIN = TEST_WEB_ORIGIN;
 process.env.CSRF_SECRET = TEST_CSRF_SECRET;
 process.env.SESSION_IDLE_TTL_SECONDS = TEST_SESSION_IDLE_TTL_SECONDS;
 process.env.SESSION_ABSOLUTE_TTL_SECONDS = TEST_SESSION_ABSOLUTE_TTL_SECONDS;
+process.env.WORKER_ENABLED = 'false';
 
 const schemaName = `rr_test_${randomUUID().replaceAll('-', '')}`;
 const testDatabaseUrl = new URL(baseDatabaseUrl);

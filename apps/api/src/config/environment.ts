@@ -7,6 +7,12 @@ export interface AppEnvironment {
   CSRF_SECRET: string;
   SESSION_IDLE_TTL_SECONDS: number;
   SESSION_ABSOLUTE_TTL_SECONDS: number;
+  PROVIDER_BASE_URL: string;
+  PROVIDER_TIMEOUT_MS: number;
+  WORKER_ENABLED: boolean;
+  WORKER_POLL_INTERVAL_MS: number;
+  RENEWAL_RETRY_DELAY_MS: number;
+  RENEWAL_JOB_LEASE_MS: number;
 }
 
 function readString(
@@ -42,9 +48,9 @@ function readPositiveInteger(value: unknown, key: string, fallback: number): num
   return parsed;
 }
 
-function readCookieSecure(value: unknown): boolean {
+function readBoolean(value: unknown, key: string, fallback: boolean): boolean {
   if (value === undefined || value === '') {
-    return true;
+    return fallback;
   }
   if (value === true || value === 'true') {
     return true;
@@ -52,7 +58,11 @@ function readCookieSecure(value: unknown): boolean {
   if (value === false || value === 'false') {
     return false;
   }
-  throw new Error('COOKIE_SECURE must be either true or false');
+  throw new Error(`${key} must be either true or false`);
+}
+
+function readCookieSecure(value: unknown): boolean {
+  return readBoolean(value, 'COOKIE_SECURE', true);
 }
 
 function isExplicitLocalHttpOrigin(origin: URL): boolean {
@@ -60,6 +70,22 @@ function isExplicitLocalHttpOrigin(origin: URL): boolean {
     origin.protocol === 'http:' &&
     ['127.0.0.1', 'localhost', '::1'].includes(origin.hostname)
   );
+}
+
+function readProviderBaseUrl(config: Record<string, unknown>): string {
+  const value = readString(config, 'PROVIDER_BASE_URL', 'http://127.0.0.1:8091');
+  const parsed = new URL(value);
+  if (
+    !['http:', 'https:'].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    (parsed.pathname !== '/' && parsed.pathname !== '')
+  ) {
+    throw new Error('PROVIDER_BASE_URL must be an HTTP(S) origin without credentials or a path');
+  }
+  return parsed.origin;
 }
 
 export function validateEnvironment(config: Record<string, unknown>): AppEnvironment {
@@ -88,6 +114,20 @@ export function validateEnvironment(config: Record<string, unknown>): AppEnviron
     throw new Error('CSRF_SECRET must contain at least 32 bytes');
   }
 
+  const providerTimeoutMs = readPositiveInteger(
+    config.PROVIDER_TIMEOUT_MS,
+    'PROVIDER_TIMEOUT_MS',
+    5_000,
+  );
+  const renewalJobLeaseMs = readPositiveInteger(
+    config.RENEWAL_JOB_LEASE_MS,
+    'RENEWAL_JOB_LEASE_MS',
+    30_000,
+  );
+  if (renewalJobLeaseMs <= providerTimeoutMs) {
+    throw new Error('RENEWAL_JOB_LEASE_MS must be greater than PROVIDER_TIMEOUT_MS');
+  }
+
   return {
     DATABASE_URL: databaseUrl,
     API_HOST: readString(config, 'API_HOST', '127.0.0.1'),
@@ -105,5 +145,19 @@ export function validateEnvironment(config: Record<string, unknown>): AppEnviron
       'SESSION_ABSOLUTE_TTL_SECONDS',
       28_800,
     ),
+    PROVIDER_BASE_URL: readProviderBaseUrl(config),
+    PROVIDER_TIMEOUT_MS: providerTimeoutMs,
+    WORKER_ENABLED: readBoolean(config.WORKER_ENABLED, 'WORKER_ENABLED', true),
+    WORKER_POLL_INTERVAL_MS: readPositiveInteger(
+      config.WORKER_POLL_INTERVAL_MS,
+      'WORKER_POLL_INTERVAL_MS',
+      1_000,
+    ),
+    RENEWAL_RETRY_DELAY_MS: readPositiveInteger(
+      config.RENEWAL_RETRY_DELAY_MS,
+      'RENEWAL_RETRY_DELAY_MS',
+      15_000,
+    ),
+    RENEWAL_JOB_LEASE_MS: renewalJobLeaseMs,
   };
 }

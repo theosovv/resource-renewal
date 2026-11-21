@@ -81,8 +81,8 @@ describe('M2 resources and renewal transitions (HTTP + real PostgreSQL)', () => 
     providerProcess = await startProviderSimulator();
   });
 
-  afterAll(() => {
-    stopProviderSimulator(providerProcess);
+  afterAll(async () => {
+    await stopProviderSimulator(providerProcess);
   });
 
   beforeEach(async () => {

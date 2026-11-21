@@ -13,6 +13,12 @@ describe('validateEnvironment', () => {
       COOKIE_SECURE: true,
       SESSION_IDLE_TTL_SECONDS: 1800,
       SESSION_ABSOLUTE_TTL_SECONDS: 28_800,
+      PROVIDER_BASE_URL: 'http://127.0.0.1:8091',
+      PROVIDER_TIMEOUT_MS: 5_000,
+      WORKER_ENABLED: true,
+      WORKER_POLL_INTERVAL_MS: 1_000,
+      RENEWAL_RETRY_DELAY_MS: 15_000,
+      RENEWAL_JOB_LEASE_MS: 30_000,
     });
   });
 
@@ -36,5 +42,24 @@ describe('validateEnvironment', () => {
     expect(() =>
       validateEnvironment({ ...baseConfig, SESSION_IDLE_TTL_SECONDS: '0' }),
     ).toThrow('positive integer');
+  });
+
+  it('validates worker booleans, provider origin and the lease/timeout relationship', () => {
+    expect(validateEnvironment({ ...baseConfig, WORKER_ENABLED: 'false' }).WORKER_ENABLED).toBe(
+      false,
+    );
+    expect(() => validateEnvironment({ ...baseConfig, WORKER_ENABLED: 'yes' })).toThrow(
+      'WORKER_ENABLED must be either true or false',
+    );
+    expect(() =>
+      validateEnvironment({ ...baseConfig, PROVIDER_BASE_URL: 'http://127.0.0.1:8091/api' }),
+    ).toThrow('PROVIDER_BASE_URL');
+    expect(() =>
+      validateEnvironment({
+        ...baseConfig,
+        PROVIDER_TIMEOUT_MS: 5_000,
+        RENEWAL_JOB_LEASE_MS: 5_000,
+      }),
+    ).toThrow('RENEWAL_JOB_LEASE_MS must be greater than PROVIDER_TIMEOUT_MS');
   });
 });

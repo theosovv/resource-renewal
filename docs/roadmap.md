@@ -69,6 +69,8 @@ M3 реализуется до основной UI-полировки, пото�
 
 **DoD:** P0 reliability tests `TC-REL-001…005`, `TC-REL-008…011`, `TC-REL-017`, `TC-REL-019` зелёные, включая system history и create-after-completed. Provider stats подтверждает одну operation; restart не теряет job. P1 fault-injection cases либо зелёные, либо честно занесены в remaining coverage.
 
+**Факт (2026-11-21):** M3 реализован. Добавлены typed provider client с timeout/percent-encoded GET/result validation, persistent in-process worker с `SKIP LOCKED`, lease/fencing и due scheduling, полный POST/RECONCILE protocol и transactional finalization. Duplicate `provider_operation_id` и resource/result conflicts атомарно приводят к guarded attention; неожиданная ошибка worker завершает процесс fail-fast. Полный E2E suite — 57 passed на реальной PostgreSQL, `pnpm check` и `pnpm prisma:validate` прошли. Обязательный recovery `TC-REL-003` против настоящего simulator прошёл три раза подряд; stats подтверждает `started_count=1` и `operation_count=1`. `TC-REL-008…019` проверены через contract-compatible fault provider и реальные lock/fencing assertions. В remaining coverage остаются специализированные crash-before-first-POST и crash-after-200-before-finalization tests `TC-REL-006/007`; UI и общий PDF/P0 acceptance относятся к M4–M5.
+
 ## M4. Frontend — 7 часов
 
 | Задача | Содержание | Оценка |

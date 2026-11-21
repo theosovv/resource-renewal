@@ -98,6 +98,16 @@
 - Manual retry реализован по `docs/reliability.md` раньше основного M3 worker: request/job locks, `WAITING_MANUAL` guard, прежний key/total counter, `PENDING/RECONCILE`, cleared lease и USER event. Это не закрывает provider recovery/finalization.
 - Локальный результат: `pnpm check`, `pnpm prisma:validate`, 22 новых M2 tests и 46/46 всего E2E suite прошли на реальной PostgreSQL; reject дополнительно проверен через stats и GET настоящего `provider_simulator.py`. `COMPLETED`, system history, create-after-completed, worker/provider execution и остальной P0/PDF acceptance остаются **Not implemented** для M3–M5.
 
+### Снимок M3 — 2026-11-21
+
+- `T03-01` — **Implemented locally**: `apps/api/src/modules/provider/` содержит typed client с bounded timeout, exact immutable payload, percent-encoded GET и allowlisted result. Проверяются completed status, `started_count=1`, operation ID, исходные поля и optional operation-key extension; response body и сетевые error messages не попадают в logs/history. Unit tests покрывают 503/404/409/network/malformed/unsafe integer.
+- `T03-02` — **Implemented locally**: `apps/api/src/modules/jobs/` выполняет persistent polling, `FOR UPDATE SKIP LOCKED` claim, reservation counters до HTTP, lease и monotonically increasing `execution_version`. Expired `RUNNING` восстанавливается через RECONCILE; scheduling writes проверяют fencing. Неожиданная ошибка polling/result write завершает процесс fail-fast, shutdown ожидает in-flight cycle.
+- `T03-03` — **Implemented locally**: uncertain POST сохраняет `PENDING/RECONCILE` и persisted delay; GET не увеличивает POST counters; после третьего POST выполняется последний RECONCILE без четвёртого automatic POST. Attention атомарно объединяет request/job/lease/SYSTEM event. Manual retry сохраняет key/total counter и начинает новый cycle с GET.
+- `T03-04` — **Implemented locally**: `apps/api/src/modules/renewals/renewal-execution.service.ts` блокирует request → job → resource, проверяет provider result и fencing, выполняет conditional resource update по snapshot и атомарно сохраняет completion/job/history. Repeat completion — no-op; zero-row update, result mismatch и exact duplicate provider-operation constraint дают guarded attention без success-полей.
+- Обязательные `TC-REL-001…005`, `TC-REL-008…011`, `TC-REL-017`, `TC-REL-019` зелёные. `apps/api/test/reliability-real.e2e-spec.ts` трижды подряд прошёл restart после первого 503 с неизменными PostgreSQL/provider; проверены public API, DB/history/job/resource, `started_count=1`, `operation_count=1`, repeat no-op и create-after-completed.
+- `apps/api/test/reliability-fault.e2e-spec.ts` дополнительно закрывает `TC-REL-012…018`, real concurrent claims, старый lease owner и deterministic create/finalize lock waits через `pg_stat_activity`. Отдельные crash-boundary сценарии `TC-REL-006/007` остаются **Not implemented** и перечислены в README.
+- Локальный результат: `pnpm check` (26 API unit + 2 web component, production build), `pnpm prisma:validate` и 57/57 E2E прошли. Миграция и публичный OpenAPI не изменялись: существующей M1 схемы и M2 contract достаточно. Полный UI/PDF/P0 acceptance остаётся предметом M4–M5.
+
 Для каждого requirement SHOULD фиксироваться:
 
 - `Implemented` / `Partial` / `Not implemented`;

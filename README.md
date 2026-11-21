@@ -2,11 +2,11 @@
 
 Приложение для согласования и выполнения заявок на продление ресурсов с ограниченным сроком действия.
 
-> **Текущий статус — M2 «Заявки и бизнес-переходы».** Реализованы полная PostgreSQL-схема, seed, server-side sessions и CSRF/CORS, resource/request API, создание со snapshot, approve/reject/manual retry, durable job и история. Persistent worker, provider client, финализация ресурса и основной UI относятся к следующим этапам и ещё не реализованы.
+> **Текущий статус — M3 «Надёжная интеграция».** Реализованы полная PostgreSQL-схема, seed, server-side sessions и CSRF/CORS, resource/request API, бизнес-переходы, persistent worker, provider integration, recovery и transactional finalization. Основной UI и полный PDF acceptance flow относятся к следующим этапам.
 
 Исходное задание: [`Fullstack_практическое_задание.pdf`](./Fullstack_практическое_задание.pdf). PDF сохранён в репозитории; исходный `provider_simulator.py` извлечён из его вложения без изменений в [`tools/provider/provider_simulator.py`](./tools/provider/provider_simulator.py).
 
-## Что работает на M1–M2
+## Что работает на M1–M3
 
 - pnpm workspace с TypeScript strict mode, NestJS API `/api/v1`, React/Vite health shell и generated OpenAPI types;
 - PostgreSQL 16.11 в Docker Compose и Prisma Client;
@@ -24,10 +24,14 @@
 - create со snapshot `oldExpiry → oldExpiry + 30 calendar days`, stable UUID `operationKey`, USER creation event и resource row lock;
 - approve/reject с request locks, self-decision и invalid-state checks; approve также проверяет snapshot под resource lock и атомарно создаёт `PENDING/POST` job;
 - manual retry из `NEEDS_ATTENTION`: request/job locks, прежний key/total counter, новый `PENDING/RECONCILE` cycle и USER event;
-- unit/component tests и 46 API E2E на реальной PostgreSQL: auth/access, tenant isolation, seed/constraints, health, transitions и реальные parallel create/approve;
+- typed provider client с timeout, percent-encoded GET, immutable payload, проверкой result и безопасной классификацией ошибок без response-body logging;
+- persistent in-process polling worker с PostgreSQL claim/`SKIP LOCKED`, lease, fencing `execution_version`, due scheduling и recovery просроченного `RUNNING` через RECONCILE;
+- persisted POST counters и `next_attempt_at`, не более трёх automatic POST в cycle, final RECONCILE и атомарный переход в `NEEDS_ATTENTION/WAITING_MANUAL`;
+- однократная transactional finalization `request → job → resource`, conditional resource update по snapshot, SYSTEM history и create-after-completed;
+- unit/component tests и 57 API E2E на реальной PostgreSQL: auth/access, tenant isolation, transitions, concurrency, provider recovery, fencing, three-attempt/manual retry и finalization conflicts;
 - GitHub Actions workflow с migrations, seed и теми же E2E.
 
-**Не реализовано:** persistent worker, provider client, обработка provider result и финализация ресурса, login/business UI и полный PDF acceptance flow. На M2 approved job остаётся в БД, но не выполняется; `COMPLETED` и system history появятся в M3. P0 suite целиком ещё не выполнен и не объявляется пройденным.
+**Не реализовано:** login/business UI, Playwright smoke и полный PDF acceptance flow. API/worker recovery и P0 reliability tests M3 выполнены, но весь P0 suite целиком ещё не объявляется пройденным до завершения UI и M5. Специализированные crash-boundary tests `TC-REL-006/007` остаются в remaining coverage.
 
 ## Точные версии
 
@@ -98,7 +102,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. На M2 web по-прежнему показывает только health flow; login UI появится в M4.
+API при старте подключается к PostgreSQL. Недоступная БД приводит к ошибке запуска, а не к ложному healthy state. При `WORKER_ENABLED=true` persistent worker запускается в том же процессе API; для выполнения approved jobs должен быть запущен provider simulator. Неожиданный сбой polling/result write является fail-fast и завершает процесс, чтобы API не оставался живым с незаметно остановленным worker. Web по-прежнему показывает только health flow; login UI появится в M4.
 
 ### 4. Запустить provider simulator
 
@@ -107,7 +111,7 @@ pnpm dev:provider
 curl --fail http://127.0.0.1:8091/health
 ```
 
-Ожидается `{"status":"ok"}`. Simulator хранит операции только в памяти процесса. На M2 приложение ещё не вызывает его из business flow; M2 E2E использует `/stats` и GET по rejected operation key, чтобы доказать отсутствие операций. Запуск нужен для проверки инфраструктурного контура и последующих этапов.
+Ожидается `{"status":"ok"}`. Simulator хранит операции только в памяти процесса и на первом POST для нового ключа сохраняет completed operation, но возвращает `503`. Worker считает результат неопределённым, сохраняет delayed RECONCILE и после restart получает прежний result по тому же ключу. Перезапуск simulator во время незавершённой операции не поддерживается.
 
 ## Локальные учётные записи
 
@@ -150,7 +154,7 @@ curl --fail-with-body -b /tmp/rr-cookies.txt -c /tmp/rr-cookies.txt \
 
 Успешный logout возвращает `204`, отзывает только текущую session и очищает cookie. Raw session token не возвращается в JSON и не должен сохраняться в Web Storage. CSRF token SPA будет хранить только в памяти.
 
-## Business API на M2
+## Business API и worker на M3
 
 Все пути ниже находятся под `/api/v1`, требуют session cookie и membership в `workspaceId` из path. POST также требует `Origin` из configured `WEB_ORIGIN` и session-bound `X-CSRF-Token`.
 
@@ -165,7 +169,21 @@ curl --fail-with-body -b /tmp/rr-cookies.txt -c /tmp/rr-cookies.txt \
 | `POST /workspaces/{workspaceId}/requests/{requestId}/reject` | `PENDING_APPROVAL → REJECTED` без job/provider/resource mutation |
 | `POST /workspaces/{workspaceId}/requests/{requestId}/retry` | `NEEDS_ATTENTION → PROCESSING` с прежним key и `RECONCILE`; требуется `APPROVER` |
 
-Create возвращает `201`, approve/reject/retry — `200`. Ответ create/detail содержит `operationKey`, поэтому его не нужно искать через SQL. Вторая активная заявка возвращает `409 REQUEST_ALREADY_ACTIVE`; неверный переход — `409 INVALID_STATE_TRANSITION`; изменённый resource snapshot при approve — `409 RESOURCE_SNAPSHOT_MISMATCH`; собственное решение — `403 SELF_DECISION_FORBIDDEN`. До M3 никакой из этих endpoints не выполняет provider HTTP, а approved job остаётся `PENDING` до появления worker.
+Create возвращает `201`, approve/reject/retry — `200`. Ответ create/detail содержит `operationKey`, поэтому его не нужно искать через SQL. Вторая активная заявка возвращает `409 REQUEST_ALREADY_ACTIVE`; неверный переход — `409 INVALID_STATE_TRANSITION`; изменённый resource snapshot при approve — `409 RESOURCE_SNAPSHOT_MISMATCH`; собственное решение — `403 SELF_DECISION_FORBIDDEN`. HTTP endpoints не выполняют provider call синхронно: после commit approve worker асинхронно обрабатывает durable job.
+
+### Состояния и восстановление
+
+```text
+PENDING_APPROVAL → PROCESSING → COMPLETED
+                     └────────→ NEEDS_ATTENTION → PROCESSING (manual retry)
+PENDING_APPROVAL → REJECTED
+```
+
+Первый POST резервирует counters в БД до HTTP и использует `operationKey` из request snapshot. Timeout/network/5xx после POST сохраняют `PENDING/RECONCILE`, `next_attempt_at = now() + RENEWAL_RETRY_DELAY_MS` и пустой lease. RECONCILE выполняет GET по percent-encoded ключу и не увеличивает POST counters. После третьего uncertain POST выполняется один последний GET; отсутствие подтверждения переводит request/job в `NEEDS_ATTENTION/WAITING_MANUAL`, поэтому четвёртого automatic POST нет. Manual retry сохраняет общий counter/key, сбрасывает только cycle counter и снова начинает с GET.
+
+Каждый claim увеличивает `execution_version`; все writes после HTTP проверяют текущие request/job/version. Приложение обеспечивает at-least-once processing, но не заявляет exactly-once execution: внешний дубликат предотвращается provider idempotency key, а повторная локальная финализация является no-op. Resource получает сохранённый `new_expiry` одним conditional UPDATE; успех, job, provider operation ID и SYSTEM history фиксируются одной транзакцией. Неизменяемый simulator должен оставаться запущенным на протяжении recovery-сценария.
+
+Для ручной приёмки после `503` удобно установить `RENEWAL_RETRY_DELAY_MS=60000`, остановить API/worker до наступления `next_attempt_at`, затем запустить его с той же БД и тем же provider. `operationKey` доступен в detail response; provider result и stats проверяются командами из `docs/test-plan.md`.
 
 ## Migrations, seed и сброс
 
@@ -193,16 +211,18 @@ NODE_ENV=development CONFIRM_DATABASE_RESET=resource_renewal pnpm db:reset:test
 ```bash
 pnpm lint              # ESLint для всего monorepo и Prisma scripts
 pnpm typecheck         # strict TypeScript для Prisma scripts и workspace-пакетов
-pnpm test              # 13 API unit tests + 2 web component tests
-pnpm test:e2e          # 46 API E2E; реальная PostgreSQL, migrations, seed и M2 provider stats
+pnpm test              # 26 API unit tests + 2 web component tests
+pnpm test:e2e          # 57 API E2E; реальная PostgreSQL, migrations, seed, real/fault providers
 pnpm build             # contracts, API и production web bundle
 pnpm check             # lint + typecheck + unit/component tests + build
 pnpm prisma:validate   # валидация Prisma schema; требует DATABASE_URL
 ```
 
-`test:e2e` создаёт отдельную временную схему `rr_test_*` для каждого test file, применяет туда migrations, запускает seed перед каждым тестом и удаляет схему после завершения. Постоянная development-схема `public` тестами не очищается. Пользователю PostgreSQL нужны права `CREATE`/`DROP SCHEMA`; локальный Compose user их имеет. Test files выполняются последовательно. Для M2 reject assertions suite сам запускает и останавливает свежий настоящий simulator на `127.0.0.1:8091`; приложение provider не вызывает. Перед `pnpm test:e2e` нужно остановить отдельно запущенный `pnpm dev:provider`: тест не подключается к potentially dirty процессу и не останавливает чужой simulator.
+`test:e2e` создаёт отдельную временную схему `rr_test_*` для каждого test file, применяет туда migrations, запускает seed перед каждым тестом и удаляет схему после завершения. Постоянная development-схема `public` тестами не очищается. Пользователю PostgreSQL нужны права `CREATE`/`DROP SCHEMA`; локальный Compose user их имеет. Test files выполняются последовательно, worker выключен в обычных API tests и включён только в reliability suite. Настоящий simulator запускается свежим на `127.0.0.1:8091`; перед `pnpm test:e2e` нужно остановить отдельно запущенный `pnpm dev:provider`. Для ответов, которые simulator не воспроизводит, используется contract-compatible fault provider на случайном свободном порту. Recovery останавливает/запускает только приложение, сохраняя PostgreSQL и provider работающими.
 
-M1 auth tests покрывают `TC-AUTH-001…010` в границах roadmap. Для role-downgrade используется test-only HTTP controller с production guards и реальной БД; он не входит в production `AppModule`. M2 suite `apps/api/test/renewals.e2e-spec.ts` добавляет 22 HTTP+PostgreSQL tests: `TC-REQ-001…004`, `TC-STATE-001…005/007`, `TC-AUTHZ-001…003`, object-level tenant checks, create/approve/reject/retry CSRF, user history, resource filters, atomic rollback и manual retry state. Currency-mismatch fixture временно удаляет и восстанавливает `resources_currency_check` только внутри disposable test schema; production constraint не ослабляется. Completed/system history, create-after-completed и provider recovery остаются в M3/M5.
+M1 auth tests покрывают `TC-AUTH-001…010` в границах roadmap. Для role-downgrade используется test-only HTTP controller с production guards и реальной БД; он не входит в production `AppModule`. M2 suite `apps/api/test/renewals.e2e-spec.ts` добавляет 22 HTTP+PostgreSQL tests: `TC-REQ-001…004`, `TC-STATE-001…005/007`, `TC-AUTHZ-001…003`, object-level tenant checks, create/approve/reject/retry CSRF, user history, resource filters, atomic rollback и manual retry state. Currency-mismatch fixture временно удаляет и восстанавливает `resources_currency_check` только внутри disposable test schema; production constraint не ослабляется.
+
+M3 suite `apps/api/test/reliability-real.e2e-spec.ts` проверяет `TC-REL-002…005` с настоящим simulator: первый 503, persisted delay, остановку до следующего provider call, restart, один operation/`started_count=1`, resource finalization, SYSTEM history, no-op repeat и create-after-completed. Этот recovery test пройден локально три раза подряд. `apps/api/test/reliability-fault.e2e-spec.ts` покрывает `TC-REL-008…019`, duplicate provider operation и claimability после GET 404/timeout. Гонка create/finalize подтверждает реальное ожидание resource row lock через `pg_stat_activity`, а не полагается только на sleep. Специализированные crash-before-first-POST и crash-after-200-before-finalize tests `TC-REL-006/007` ещё не добавлены.
 
 Дополнительные команды:
 
@@ -244,8 +264,10 @@ Preview проксирует `/api` на `API_PROXY_TARGET`. Deployment и HA н
 | `CSRF_SECRET` | Локальное значение | HMAC secret, минимум 32 байта |
 | `SESSION_IDLE_TTL_SECONDS` | `1800` | Sliding idle expiry, 30 минут |
 | `SESSION_ABSOLUTE_TTL_SECONDS` | `28800` | Непродлеваемый absolute expiry, 8 часов |
-| `PROVIDER_BASE_URL`, `PROVIDER_TIMEOUT_MS` | `http://127.0.0.1:8091`, `5000` | Конфигурация provider client для M3 |
-| `WORKER_*`, `RENEWAL_*` | См. example | Конфигурация persistent worker для M3; worker на M2 не запускается |
+| `PROVIDER_BASE_URL`, `PROVIDER_TIMEOUT_MS` | `http://127.0.0.1:8091`, `5000` | Provider origin и bounded HTTP timeout |
+| `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS` | `true`, `1000` | In-process persistent worker и период polling |
+| `RENEWAL_RETRY_DELAY_MS` | `15000` | Persisted пауза после uncertain POST/GET; для ручной приёмки можно `60000` |
+| `RENEWAL_JOB_LEASE_MS` | `30000` | Lease владения job; должен быть больше provider timeout |
 
 Не помещайте реальные секреты в `.env.example`, логи или git. Password hash, raw session/CSRF tokens, cookies и Authorization не логируются.
 
@@ -257,7 +279,9 @@ apps/
 │   ├── src/modules/auth/       # Sessions, CSRF, cookie и access guards
 │   ├── src/modules/workspaces/ # Доступные текущему пользователю workspaces
 │   ├── src/modules/resources/  # Workspace-scoped resource read API
-│   ├── src/modules/renewals/   # Request API, transitions, jobs и history
+│   ├── src/modules/renewals/   # Request API, transitions, finalization и history
+│   ├── src/modules/jobs/       # Durable claim/scheduling и polling worker
+│   ├── src/modules/provider/   # Typed isolated provider client
 │   ├── src/modules/health/
 │   └── test/                   # HTTP + реальная PostgreSQL, isolated schemas
 └── web/                        # M0 health shell; основной UI запланирован на M4
@@ -276,18 +300,17 @@ docs/                           # Specs, OpenAPI, SQL, ADR и test plan
 compose.yaml
 ```
 
-Frontend зависит только от HTTP-контракта и не импортирует Prisma/NestJS entities. Provider simulator и будущий worker остаются изолированными от HTTP controllers.
+Frontend зависит только от HTTP-контракта и не импортирует Prisma/NestJS entities. Provider client и worker изолированы от HTTP controllers.
 
 ## Ограничения и следующий этап
 
-- Прямого изменения resource expiry/amount через API нет; resource меняет только будущая transactional finalization в M3.
-- Persistent worker и provider client отсутствуют; `WORKER_ENABLED=true` в example не запускает worker на M2. Approved jobs сохраняются, но пока не выполняются.
-- `COMPLETED`, system completion/attention history, create-after-completed и полный PDF recovery/acceptance flow ещё не реализованы.
-- Login/business UI остаётся на M4.
+- Прямого изменения resource expiry/amount через API нет; resource меняет только transactional finalization worker.
+- Login/business UI и Playwright smoke остаются на M4; полный PDF acceptance и единый финальный P0 run — на M5.
+- Специализированные P1 crash-boundary tests `TC-REL-006` (до первого POST) и `TC-REL-007` (после provider 200 до finalization) ещё не реализованы; это не заменяет пройденный обязательный recovery `TC-REL-003`.
 - Периодическая физическая очистка старых sessions не запланирована; expired/revoked records остаются недействительными независимо от cleanup.
-- P1 fault-injection tests и остальной P0 suite остаются предметом M3–M5.
+- Worker обеспечивает at-least-once processing, не exactly-once execution. Перезапуск provider simulator во время pending operation и потеря PostgreSQL находятся вне гарантий MVP.
 
-Следующий этап — **M3: persistent worker, provider integration, recovery и финализация** по [`docs/roadmap.md`](./docs/roadmap.md).
+Следующий этап — **M4: login/business UI, history и действия approver** по [`docs/roadmap.md`](./docs/roadmap.md).
 
 ## Документация
 
@@ -306,7 +329,7 @@ Frontend зависит только от HTTP-контракта и не имп
 | [Traceability Matrix](./docs/traceability-matrix.md) | Требование → решение → задача → тест |
 | [ADR](./docs/adr/) | Причины архитектурных решений |
 
-Целевые гарантии worker описаны в [`docs/reliability.md`](./docs/reliability.md), но их описание не означает реализацию на M2.
+Протокол и гарантии worker описаны в [`docs/reliability.md`](./docs/reliability.md); фактически проверенные сценарии и оставшиеся ограничения перечислены выше.
 
 ## Правила разработки
 
